@@ -1,0 +1,15 @@
+{
+  "name": "minos",
+  "version": "1.0.0",
+  "description": "Telegram bot to decide who shall occupy the office",
+  "main": "bot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "seedrandom": "^3.0.5",
+    "telegraf-inline-menu": "^6.2.1"
+  }
+}
