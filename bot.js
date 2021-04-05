@@ -1,9 +1,17 @@
+const fs = require("fs")
 const { Telegraf, Markup } = require("telegraf")
 const seedrandom = require("seedrandom")
 
-const ROOM_CAPACITY = 1
+const ROOM_CAPACITY = 3
+const ROOM_NAME = "the Sacred Office of Paolo Provero"
+const DAYS = [
+    'mon_am', 'mon_pm',
+    'tue_am', 'tue_pm',
+    'wed_am', 'wed_pm',
+    'thu_am', 'thu_pm',
+    'fri_am', 'fri_pm'
+]
 const INITIAL_KARMA = 128
-const DAYS = ['mon_am', 'mon_pm', 'tue_am', 'tue_pm', 'wed_am', 'wed_pm', 'thu_am', 'thu_pm', 'fri_am', 'fri_pm']
 
 class Employee {
     constructor(username, name) {
@@ -89,17 +97,18 @@ DAYS.forEach((day_id, index) => {
 })
 
 composeMessage = function(slots, employees, week) {
-    var s = "*Week of the " + week.toLocaleString(
-        'en-GB',
-        {year: 'numeric', month: 'numeric', day: 'numeric' }
-    ) + "*\n"
+    var s = "*Week of the " +
+        week.toLocaleString(
+            'en-GB',
+            {year: 'numeric', month: 'numeric', day: 'numeric' }
+        ) + "*\n"
     s += "Thou shalt now be judged for the week starting on " +
         week.toLocaleString(
             'en-GB',
             {weekday: 'long', month: 'long', day: 'numeric' }
         ) + ". Confess your preferences " +
         "by tapping the buttons below and I shall decide when you " +
-        "can enter the Sacred Provero Laboratory. You have time until " +
+        "can enter the Office. You have time until " +
         new Date(week.getTime() - 3*24*60*60*1000).toLocaleString(
             'en-GB',
             {weekday: 'long', month: 'long', day: 'numeric' }
@@ -134,28 +143,40 @@ composeMessage = function(slots, employees, week) {
                 day.candidateCould.push(id)
         })
         var i = 0
-        while (day.candidateMust.length > day.remainingCapacity & i < day.candidateMust.length) {
-            seedrandom(week + indexDay + day.candidateMust[i], { global: true })
+        while (day.candidateMust.length > day.remainingCapacity
+        && i < day.candidateMust.length) {
+            seedrandom(
+                week + indexDay + day.candidateMust[i],
+                { global: true }
+            )
             if (employees[day.candidateMust[i]].punish())
                 day.candidateMust.splice(i, 1)
             else
                 i++
         }
         if (day.candidateMust.length > day.remainingCapacity)
-            day.candidateMust = getRandomSubarray(day.candidateMust, day.remainingCapacity)
+            day.candidateMust = getRandomSubarray(
+                day.candidateMust,
+                day.remainingCapacity
+            )
         day.addLuckyBastards(day.candidateMust, employees)
         day.candidateMust = []
 
         // Let the bad luck strike for the candidate coulds
         var i = 0
-        while (day.candidateCould.length > day.remainingCapacity & i < day.candidateCould.length) {
-            seedrandom(week + indexDay - day.candidateMust[i], { global: true })
+        while (day.candidateCould.length > day.remainingCapacity
+        && i < day.candidateCould.length) {
+            seedrandom(
+                week + indexDay - day.candidateMust[i],
+                { global: true }
+            )
             if (employees[day.candidateCould[i]].punish())
                 day.candidateCould.splice(i, 1)
             else
                 i++
         }
-        if (day.candidateCould.length && day.candidateCould.length <= day.remainingCapacity) {
+        if (day.candidateCould.length
+        && day.candidateCould.length <= day.remainingCapacity) {
             day.addLuckyBastards(day.candidateCould, employees)
             day.candidateCould = []
         }
@@ -168,8 +189,11 @@ composeMessage = function(slots, employees, week) {
             // sort the candidates in ascending order of n_assigned 
             // (settle spares at random)
             var i = 0
-            seedrandom(week + day.name - slots.length, { global: true })
             while (day.remainingCapacity && i <= slots.length) {
+                seedrandom(
+                    week + day.name - slots.length - i,
+                    { global: true }
+                )
                 var newCandidateCould = []
                 day.candidateCould.forEach((id, indexId) => {
                     if (employees[id].n_assigned == i)
@@ -177,13 +201,22 @@ composeMessage = function(slots, employees, week) {
                 })
                 newCandidateCould.sort()
                 if (newCandidateCould.length) {
-                    var howMany = Math.min(newCandidateCould.length, day.remainingCapacity)
-                    var newCould = getRandomSubarray(newCandidateCould, howMany)
+                    var howMany = Math.min(
+                        newCandidateCould.length,
+                        day.remainingCapacity
+                    )
+                    var newCould = getRandomSubarray(
+                        newCandidateCould,
+                        howMany
+                    )
                     day.virdict = day.virdict.concat(newCould)
                     day.remainingCapacity -= howMany
                     for (var j = 0; j < newCould.length; j++) {
                         employees[newCould[j]].n_assigned++
-                        day.candidateCould.splice(day.candidateCould.indexOf(newCould[j]), 1)
+                        day.candidateCould.splice(
+                            day.candidateCould.indexOf(newCould[j]),
+                            1
+                        )
                     }
                 }
                 i++
@@ -211,52 +244,108 @@ composeMessage = function(slots, employees, week) {
 const bot_token = '1633438178:AAEmJKf7gi_R-Jzz8ggO7xRo0ZUqe7DFENs'
 const bot = new Telegraf(bot_token)
 const my_id = '128294952'
-var chats = {}
+const statusFile = '/home/fmarotta/minos/status.json'
 
 const intro = "<b>Greetings!</b>\n" + 
     "I am Minos, king of Crete, son of Zeus and Europa, " +
     "and judge of the underworld. In Dante's Inferno, " +
     "I examine the sins of the souls and decide in which circle " +
     "they should go. Here, I examine your preferences and decide " +
-    "which days you should go to the Sacred Laboratory of Paolo " +
-    "Provero.\n\n"
+    "which days you should go to " + ROOM_NAME + ".\n\n"
 const quickStart = "<b>Instructions</b>\n" +
     "Every week you should write the command /judge, then let me " +
     "know your preferences by tapping the buttons that will appear. " +
-    "If you do not come to the lab when expected, you will lose /karma points " +
-    "and be penalised when the places in the lab are limited. Ask for /help " +
-    "anytime.\n\n"
+    "There are only a few places each day, so choose wisely. " +
+    "If you do not go to the Laboratory when expected, you will lose " +
+    "/karma points and be penalised when there is a competition " +
+    "for a place. Ask for /help anytime.\n\n"
 const instructions = "<b>User manual</b>\n" +
     "Every week you should write the command /judge, then let me " +
-    "know your preferences by tapping the buttons. There is one row of buttons " +
-    "for each slot:\nmonday morning,\nmonday afternoon,\ntuesday morning,\n...\n" +
-    "friday afternoon.\nMorning and afternoon are abbreviated with 'am' and 'pm'. The meanings of " +
+    "know your preferences by tapping the buttons. There is one row of " +
+    "buttons for each slot:\nmonday morning,\nmonday afternoon,\ntuesday " +
+    "morning,\n...\nfriday afternoon.\nMorning and afternoon are " +
+    "abbreviated with 'am' and 'pm'. The meanings of " +
     "the buttons are roughly as follows.\n" + 
-    "<i>I can't</i>: you cannot go to the lab because you have a class, a romantic date, or something more important.\n" +
-    "<i>I could</i>: you do not have anything better to do than staying home " +
-    "watching Netflix, so you may well go to the lab instead; however, if you didn't go on this particular day it " +
+    "<i>I can't</i>: you cannot go to the Lab because you have a " +
+    "class, a romantic date, or something not less important.\n" +
+    "<i>I could</i>: you do not have anything better to do than " +
+    "staying home watching Netflix, so you may well go to the Lab " +
+    "instead; however, if you didn't go on this particular day it " +
     "would not be a tragedy.\n" +
-    "<i>I must</i>: you have the one:one with Paolo (or, alternatively, you " +
-    "have to feed the rat that lives under your desk in the office before he dies).\n" +
-    "I give precedence to those who choose 'I must' over those who choose 'I could', but otherwise, " +
-    "being an impartial judge, I try to make everybody as happy as possible. " +
+    "<i>I must</i>: you have the one:one with Paolo (or, alternatively, " +
+    "you have to feed the rat that lives under your desk before he " +
+    "dies).\n" +
+    "I give precedence to those who choose 'I must' over those who " +
+    "choose 'I could', but otherwise, being an impartial judge, " +
+    "I try to make everybody as happy as possible. " +
     "Run-offs are settled by chance.\n\n"
 const karma = "<b>Karma</b>\n" +
-    "If you reserve a slot, then you <i>have to</i> go, otherwise I will be very " +
-    "angry. If I notice that you did not come to the lab when you had reserved " +
-    "a place, you will lose karma points. You start with " + INITIAL_KARMA + " " +
-    "karma points, which are halved every time you do not show up when expected. " +
-    "On the other hand, you can increase your karma by coming to the lab when it is your turn. " +
+    "If I assign you a slot, then you <i>have to</i> go, otherwise " +
+    "I will be very angry. If I notice that you did not go to the " +
+    "Lab when you were supposed to, you will lose karma points. " +
+    "You start with " + INITIAL_KARMA + " karma points, which " +
+    "are halved every time you do not show up when expected. " +
+    "On the other hand, you can increase your karma by going to " +
+    "the Lab when it is your turn. " +
     "Consult the karma situation with the /karma command. " +
-    "If you have a low karma, you are likely to lose the run-offs. However, if you are penalised " +
+    "If you have a low karma, you are likely to lose the run-offs. " +
+    "However, if you are penalised " +
     "once for your loss of karma, I will not punish you again."
+
+// restore the status
+try {
+    var chats = JSON.parse(fs.readFileSync(statusFile))
+    Object.keys(chats).forEach((id, index) => {
+        Object.keys(chats[id].employees).forEach((person, indexPerson) => {
+            var tmp = new Employee(
+                chats[id].employees[person].username,
+                chats[id].employees[person].name
+            )
+            tmp.karma = chats[id].employees[person].karma
+            tmp.n_assigned = chats[id].employees[person].n_assigned
+            chats[id].employees[person] = tmp
+        })
+        chats[id].slots.forEach((day, indexDay) => {
+            var tmp = new Slot(
+                day.id,
+                day.name,
+                day.start,
+                day.end
+            )
+            tmp.capacity = day.capacity
+            tmp.remainingCapacity = day.remainingCapacity
+            tmp.preferences = day.preferences
+            tmp.candidateMust = day.candidateMust
+            tmp.candidateCould = day.candidateCould
+            tmp.virdict = day.virdict
+            tmp.judged = day.judged
+            chats[id].slots[indexDay] = tmp
+        })
+    })
+} catch (error) {
+    if (error.code == "ENOENT")
+        var chats = {}
+    else
+        throw error
+}
 
 // Use like this:   throw new Error('Example error')
 bot.catch((err, ctx) => {
     console.log(err)
     bot.telegram.sendMessage(my_id, '!!Minos problem!!\n\n' + err.message)
     ctx.reply("Ooops, there was an internal error, sorry about that.")
+    fs.writeFileSync(statusFile, JSON.stringify(chats))
     throw err
+})
+process.once('SIGINT', () => {
+    fs.writeFileSync(statusFile, JSON.stringify(chats))
+    bot.stop('SIGINT')
+    process.exit()
+})
+process.once('SIGTERM', () => {
+    fs.writeFileSync(statusFile, JSON.stringify(chats))
+    bot.stop('SIGTERM')
+    process.exit()
 })
 
 bot.on("message", (ctx, next) => {
@@ -269,6 +358,7 @@ bot.on("message", (ctx, next) => {
                 return next()
             } else {
                 ctx.reply("Psst! Say /start")
+                return
             }
         }
         return next()
@@ -292,6 +382,7 @@ bot.command('start', (ctx) => {
     chats[id].slots = []
     chats[id].employees = {}
     ctx.reply(intro + quickStart, {parse_mode: 'HTML'})
+    fs.writeFileSync(statusFile, JSON.stringify(chats))
     return
 })
 
@@ -300,6 +391,7 @@ bot.command('stop', (ctx) => {
     var id = String(ctx.update.message.chat.id)
     ctx.reply("OK, bye!")
     chats[id] = null
+    fs.writeFileSync(statusFile, JSON.stringify(chats))
     return
 })
 
@@ -327,17 +419,26 @@ bot.command('judge', (ctx) => {
         chats[id].slots.push(new Slot(
             day_id,
             day_name,
-            chats[id].week.getTime() + ((day_index*24+hour_start)*60*60*1000),
-            chats[id].week.getTime() + ((day_index*24+hour_end)*60*60*1000)
+            chats[id].week.getTime() + (day_index*24+hour_start)*60*60*1000,
+            chats[id].week.getTime() + (day_index*24+hour_end)*60*60*1000
         ))
     })
 
-    ctx.reply(composeMessage(chats[id].slots, chats[id].employees, chats[id].week), {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(calendarKeyboard)
-    }).then((m) => {
+    ctx.reply(
+        composeMessage(
+            chats[id].slots,
+            chats[id].employees,
+            chats[id].week
+        ),
+        {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard(calendarKeyboard)
+        }
+    ).then((m) => {
         chats[id].previousMessage = m.message_id
     })
+
+    fs.writeFileSync(statusFile, JSON.stringify(chats))
     return
 })
 
@@ -345,10 +446,13 @@ bot.command('karma', (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
     var id = String(ctx.update.message.chat.id)
     var s = "<b>Karma</b>\n"
-    Object.keys(chats[id].employees).forEach((key, index) => {
-        s += chats[id].employees[key].name + " has " +
-            chats[id].employees[key].karma + " karma points\n"
-    })
+    if (Object.keys(chats[id].employees).length) {
+        Object.keys(chats[id].employees).forEach((key, index) => {
+            s += chats[id].employees[key].name + " has " +
+                chats[id].employees[key].karma + " karma points\n"
+        })
+    } else
+        s += "There are no participants yet"
     return ctx.reply(s, {parse_mode: 'HTML'})
 })
 
@@ -370,19 +474,29 @@ bot.action(/slot(\d+)_(.*)/, (ctx) => {
         ctx.answerCbQuery("Please don't press this button. It hurts")
     } else {
         ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
-        ctx.answerCbQuery(`On ${chats[id].slots[ctx.match[1]].name}, you ${ctx.match[2]}`)
+        ctx.answerCbQuery("On " +
+            chats[id].slots[ctx.match[1]].name + ", " +
+            "you " + ctx.match[2])
         if (chats[id].slots[ctx.match[1]].addPreference(
                 String(ctx.from.id),
                 ctx.from.username,
                 ctx.from.first_name + ' ' + ctx.from.last_name,
                 ctx.match[2],
                 chats[id].employees)) {
-            ctx.editMessageText(composeMessage(chats[id].slots, chats[id].employees, chats[id].week), {
-                parse_mode: 'Markdown',
-                ...Markup.inlineKeyboard(calendarKeyboard)
-            })
+            ctx.editMessageText(
+                composeMessage(
+                    chats[id].slots,
+                    chats[id].employees,
+                    chats[id].week
+                ),
+                {
+                    parse_mode: 'Markdown',
+                    ...Markup.inlineKeyboard(calendarKeyboard)
+                }
+            )
         }
     }
+    fs.writeFileSync(statusFile, JSON.stringify(chats))
     return
 })
 
@@ -393,10 +507,14 @@ bot.action(/karma_(.+)_(\d+)_(.*)/, (ctx) => {
     var s = "<b>Judgement hour</b>\n"
     if (ctx.match[3] == "yes") {
         chats[id].employees[ctx.match[1]].increaseKarma()
-        s += chats[id].employees[ctx.match[1]].name + " was in the office on " + chats[id].slots[ctx.match[2]].name
+        s += chats[id].employees[ctx.match[1]].name +
+            " was in the office on <i>" +
+            chats[id].slots[ctx.match[2]].name + "</i>"
     } else {
         chats[id].employees[ctx.match[1]].decreaseKarma()
-        s += chats[id].employees[ctx.match[1]].name + " was not in the office on " + chats[id].slots[ctx.match[2]].name
+        s += chats[id].employees[ctx.match[1]].name +
+            " was not in the office on <i>" +
+            chats[id].slots[ctx.match[2]].name + "</i>"
     }
     ctx.editMessageText(s, {parse_mode: 'HTML'})
 })
@@ -410,26 +528,36 @@ var apocalypse = setInterval(function () {
                 bot.telegram.sendChatAction(chat_id, 'typing')
                 for (var i = 0; i < day.virdict.length; i++) {
                     var s = "<b>Judgement hour</b>\n"
-                    s += "Was @" + chats[chat_id].employees[day.virdict[i]].username +
-                        " in the office on " + day.name + "?"
+                    s += "Was @" +
+                        chats[chat_id].employees[day.virdict[i]].username +
+                        " in the office on <i>" + day.name + "</i>?"
                     bot.telegram.sendMessage(chat_id, s, {
                         parse_mode: "HTML",
                         ...Markup.inlineKeyboard([
                             Markup.button.callback(
                                 "Yep",
-                                "karma_" + day.virdict[i] + "_" + indexDay + "_yes"),
+                                "karma_" +
+                                    day.virdict[i] +
+                                    "_" +
+                                    indexDay +
+                                    "_yes"),
                             Markup.button.callback(
                                 "Nope",
-                                "karma_" + day.virdict[i] + "_" + indexDay + "_no")
+                                "karma_" +
+                                    day.virdict[i] +
+                                    "_" +
+                                    indexDay +
+                                    "_no")
                         ])
                     })
                 }
             }
             day.judged = true
+            fs.writeFileSync(statusFile, JSON.stringify(chats))
         }
     })
     })
-}, 1000 * 60 )
+}, 1000 * 15)
 
 
 /*
@@ -441,37 +569,17 @@ bot.launch()
 console.log("Minos is judging!")
 
 
-
-
-
 /*
-bot.start((ctx) => {
-    ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
-    var message, keyboard
-})
-
-bot.help((ctx) => {
-    ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
-    var message, keyboard
-
-})
-
-})
-
 bot.on('sticker', (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
     return ctx.reply('👍')
 })
-
 bot.hears(/thank/i, (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
     return ctx.telegram.sendSticker(ctx.chat.id, 'CAADAgADAgQAAtJaiAECKCdNruu1MQI')
 })
-
-console.log("Minos is ready!")
-bot.launch()
-
 */
+
 
 function getRandomSubarray(arr, size) {
     var shuffled = arr.slice(0), i = arr.length, temp, index;
