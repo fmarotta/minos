@@ -234,7 +234,7 @@ composeMessage = function(slots, employees, week) {
         })
     })
 
-    s += "\n\nRemember that Minos is watching you!"
+    s += "\n\nRemember that Minos and the Minotaur are watching you!"
     return s
 }
 
@@ -257,24 +257,26 @@ const quickStart = "<b>Instructions</b>\n" +
     "know your preferences by tapping the buttons that will appear. " +
     "There are only a few places each day, so choose wisely. " +
     "If you do not go to the Laboratory when expected, you will lose " +
-    "/karma points and be penalised when there is a competition " +
-    "for a place. Ask for /help anytime.\n\n"
-const instructions = "<b>User manual</b>\n" +
+    "/karma points and be penalised when there is competition " +
+    "for a place. If you lose all of your karma, you will be offered " +
+    "as a tribute to the Minotaur. Ask for /help anytime.\n\n"
+const instructions = "<b>Judgement process</b>\n" +
     "Every week you should write the command /judge, then let me " +
     "know your preferences by tapping the buttons. There is one row of " +
-    "buttons for each slot:\nmonday morning,\nmonday afternoon,\ntuesday " +
-    "morning,\n...\nfriday afternoon.\nMorning and afternoon are " +
+    "buttons for each slot: monday morning, monday afternoon, tuesday " +
+    "morning, ..., friday afternoon. Morning and afternoon are " +
     "abbreviated with 'am' and 'pm'. The meanings of " +
     "the buttons are roughly as follows.\n" + 
     "<i>I can't</i>: you cannot go to the Lab because you have a " +
     "class, a romantic date, or something not less important.\n" +
     "<i>I could</i>: you do not have anything better to do than " +
     "staying home watching Netflix, so you may well go to the Lab " +
-    "instead; however, if you didn't go on this particular day it " +
+    "instead; however, if you did not go on this particular day it " +
     "would not be a tragedy.\n" +
-    "<i>I must</i>: you have the one:one with Paolo (or, alternatively, " +
-    "you have to feed the rat that lives under your desk before he " +
-    "dies).\n" +
+    "<i>I must</i>: you cannot work from homo or you have the one:one " +
+    "with Paolo (or, alternatively, you have to feed the rat that " +
+    "lives under your desk before it dies). In other words, it is " +
+    "a matter of life or death.\n" +
     "I give precedence to those who choose 'I must' over those who " +
     "choose 'I could', but otherwise, being an impartial judge, " +
     "I try to make everybody as happy as possible. " +
@@ -287,9 +289,11 @@ const karma = "<b>Karma</b>\n" +
     "are halved every time you do not show up when expected. " +
     "On the other hand, you can increase your karma by going to " +
     "the Lab when it is your turn. " +
-    "Consult the karma situation with the /karma command. " +
-    "If you have a low karma, you are likely to lose the run-offs. " +
-    "However, if you are penalised " +
+    "Consult the karma situation with the /karma command, and be " +
+    "aware that if you lose all of your karma you will be offered " +
+    "as a tribute to the Minotaur. " +
+    "If you have a low karma, you are likely to lose the run-offs, " +
+    "but if you are penalised " +
     "once for your loss of karma, I will not punish you again."
 
 // restore the status
