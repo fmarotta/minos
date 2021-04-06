@@ -241,7 +241,7 @@ composeMessage = function(slots, employees, week) {
 
 /* BOT */
 
-const bot_token = '1633438178:AAEmJKf7gi_R-Jzz8ggO7xRo0ZUqe7DFENs'
+const bot_token = '1751753383:AAFIcH-4EL5sg6RQOSUvKy0lnmT_q1qBDzc'
 const bot = new Telegraf(bot_token)
 const my_id = '128294952'
 const statusFile = '/home/fmarotta/minos/status.json'
@@ -561,7 +561,7 @@ var apocalypse = setInterval(function () {
         }
     })
     })
-}, 1000 * 15)
+}, 1000 * 60 * 50)
 
 
 /*
