@@ -1,6 +1,7 @@
 const fs = require("fs")
-const { Telegraf, Markup } = require("telegraf")
+const {Telegraf, Markup} = require("telegraf")
 const seedrandom = require("seedrandom")
+const TESTING = false
 
 const ROOM_CAPACITY = 3
 const ROOM_NAME = "the Sacred Office of Paolo Provero"
@@ -14,14 +15,16 @@ const DAYS = [
 const INITIAL_KARMA = 128
 
 class Employee {
-    constructor(username, name) {
+    constructor(username, first_name, last_name) {
         this.username = username
-        this.name = name
+        this.first_name = first_name
+        this.last_name = last_name
+        this.name = first_name
         this.karma = INITIAL_KARMA
         this.n_assigned = 0
     }
     punish() {
-        if (INITIAL_KARMA*Math.random() > this.karma) {
+        if (INITIAL_KARMA*Math.random() >= this.karma) {
             this.karma *= 2
             this.karma = Math.min(this.karma, INITIAL_KARMA)
             return true
@@ -29,7 +32,7 @@ class Employee {
         return false
     }
     increaseKarma() {
-        this.karma += 10
+        this.karma += 8
         this.karma = Math.min(this.karma, INITIAL_KARMA)
     }
     decreaseKarma() {
@@ -46,15 +49,11 @@ class Slot {
         this.capacity = ROOM_CAPACITY
         this.remainingCapacity = ROOM_CAPACITY
         this.preferences = {} // hash with the selected preference of each
-        this.candidateMust = [] // array with who must go
-        this.candidateCould = [] // array with who could go
         this.virdict = [] // array with max three names
+        this.punished = [] // array with who has been punished
         this.judged = false
     }
-    addPreference(id, username, name, what, employees) {
-        // add this employee to the registry
-        if (employees[id] == null)
-            employees[id] = new Employee(username, name)
+    addPreference(id, username, name, what) {
         // if the preference is updated, return true; if nothing 
         // changed, return false
         if (this.preferences[id] == what)
@@ -71,8 +70,6 @@ class Slot {
     addLuckyBastards(lb, employees) {
         this.virdict = this.virdict.concat(lb)
         this.remainingCapacity -= lb.length
-        for (var i = 0; i < lb.length; i++)
-            employees[lb[i]].n_assigned++
     }
 }
 
@@ -108,11 +105,13 @@ composeMessage = function(slots, employees, week) {
             {weekday: 'long', month: 'long', day: 'numeric' }
         ) + ". Confess your preferences " +
         "by tapping the buttons below and I shall decide when you " +
-        "can enter the Office. You have time until " +
+        "can enter the Office, which has only " + ROOM_CAPACITY +
+        " places. You have time until " +
         new Date(week.getTime() - 3*24*60*60*1000).toLocaleString(
             'en-GB',
             {weekday: 'long', month: 'long', day: 'numeric' }
-        ) + " at noon to change your preferences. Then, the apocalypse " +
+        ) + " at noon " +
+        "to change your preferences. Then, the apocalypse " +
         "will come and you will be permanently judged, for this week.\n"
 
     s += "\n*Confessions*"
@@ -131,96 +130,113 @@ composeMessage = function(slots, employees, week) {
     })
 
     // easy decisions
+    var anyPunished = false
+    var candidateMust = {}
+    var candidateCould = {}
     slots.forEach((day, indexDay) => {
         day.remainingCapacity = day.capacity
         day.virdict = []
-        day.candidateMust = []
-        day.candidateCould = []
+        day.punished = []
+        candidateMust[day.name] = []
+        candidateCould[day.name] = []
         day.getPretenders().forEach((id, indexId) => {
             if (day.getPreference(id) == 'must')
-                day.candidateMust.push(id)
+                candidateMust[day.name].push(id)
             if (day.getPreference(id) == 'could')
-                day.candidateCould.push(id)
+                candidateCould[day.name].push(id)
         })
+
         var i = 0
-        while (day.candidateMust.length > day.remainingCapacity
-        && i < day.candidateMust.length) {
+        candidateMust[day.name].sort()
+        seedrandom(week.getTime() + 10 * indexDay, {global: true})
+        candidateMust[day.name] = getRandomSubarray(
+            candidateMust[day.name],
+            candidateMust[day.name].length
+        )
+        while (day.remainingCapacity < candidateMust[day.name].length
+        && i < candidateMust[day.name].length) {
             seedrandom(
-                week + indexDay + day.candidateMust[i],
-                { global: true }
+                week.getTime() + indexDay + parseInt(candidateMust[day.name][i]),
+                {global: true}
             )
-            if (employees[day.candidateMust[i]].punish())
-                day.candidateMust.splice(i, 1)
-            else
+            if (employees[candidateMust[day.name][i]].punish()) {
+                day.punished.push(candidateMust[day.name].splice(i, 1))
+                anyPunished = true
+            } else
                 i++
         }
-        if (day.candidateMust.length > day.remainingCapacity)
-            day.candidateMust = getRandomSubarray(
-                day.candidateMust,
+        if (candidateMust[day.name].length > day.remainingCapacity)
+            seedrandom(
+                week.getTime() + indexDay * indexDay,
+                {global: true}
+            )
+            candidateMust[day.name] = getRandomSubarray(
+                candidateMust[day.name],
                 day.remainingCapacity
             )
-        day.addLuckyBastards(day.candidateMust, employees)
-        day.candidateMust = []
+        day.addLuckyBastards(candidateMust[day.name], employees)
+        for (var i = 0; i < candidateMust[day.name].length; i++)
+            employees[candidateMust[day.name][i]].n_assigned++
+        candidateMust[day.name] = []
 
-        // Let the bad luck strike for the candidate coulds
-        var i = 0
-        while (day.candidateCould.length > day.remainingCapacity
-        && i < day.candidateCould.length) {
-            seedrandom(
-                week + indexDay - day.candidateMust[i],
-                { global: true }
-            )
-            if (employees[day.candidateCould[i]].punish())
-                day.candidateCould.splice(i, 1)
-            else
-                i++
-        }
-        if (day.candidateCould.length
-        && day.candidateCould.length <= day.remainingCapacity) {
-            day.addLuckyBastards(day.candidateCould, employees)
-            day.candidateCould = []
+        if (candidateCould[day.name].length
+        && candidateCould[day.name].length <= day.remainingCapacity) {
+            day.addLuckyBastards(candidateCould[day.name], employees)
+            for (var i = 0; i < candidateCould[day.name].length; i++)
+                employees[candidateCould[day.name][i]].n_assigned++
+            candidateCould[day.name] = []
         }
     })
 
     // hard decisions
-    seedrandom(week, { global: true })
+    seedrandom(week.getTime(), {global: true})
     getRandomSubarray(slots, slots.length).forEach((day, indexDay) => {
-        if (day.candidateCould.length && day.remainingCapacity) {
-            // sort the candidates in ascending order of n_assigned 
-            // (settle spares at random)
-            var i = 0
-            while (day.remainingCapacity && i <= slots.length) {
-                seedrandom(
-                    week + day.name - slots.length - i,
-                    { global: true }
-                )
-                var newCandidateCould = []
-                day.candidateCould.forEach((id, indexId) => {
-                    if (employees[id].n_assigned == i)
-                        newCandidateCould.push(id)
-                })
+        if (candidateCould[day.name].length == 0 || day.remainingCapacity == 0)
+            return
+        // sort the candidates in ascending order of n_assigned 
+        // (settle spares at random)
+        var n = 0
+        while (day.remainingCapacity && n <= slots.length) {
+            var newCandidateCould = []
+            candidateCould[day.name].forEach((id, indexId) => {
+                if (employees[id].n_assigned == n)
+                    newCandidateCould.push(id)
+            })
+            if (newCandidateCould.length) {
                 newCandidateCould.sort()
-                if (newCandidateCould.length) {
-                    var howMany = Math.min(
-                        newCandidateCould.length,
-                        day.remainingCapacity
-                    )
-                    var newCould = getRandomSubarray(
-                        newCandidateCould,
-                        howMany
-                    )
-                    day.virdict = day.virdict.concat(newCould)
-                    day.remainingCapacity -= howMany
-                    for (var j = 0; j < newCould.length; j++) {
-                        employees[newCould[j]].n_assigned++
-                        day.candidateCould.splice(
-                            day.candidateCould.indexOf(newCould[j]),
-                            1
-                        )
-                    }
-                }
-                i++
+                seedrandom(
+                    week.getTime() + indexDay - slots.length - n,
+                    {global: true}
+                )
+                newCandidateCould = getRandomSubarray(
+                    newCandidateCould,
+                    newCandidateCould.length
+                )
             }
+            while (day.remainingCapacity && newCandidateCould.length) {
+                seedrandom(
+                    week.getTime() + indexDay - parseInt(newCandidateCould[0]),
+                    {global: true}
+                )
+                if (day.remainingCapacity < candidateCould[day.name].length
+                && employees[newCandidateCould[0]].punish()) {
+                    anyPunished = true
+                    candidateCould[day.name].splice(
+                        candidateCould[day.name].indexOf(newCandidateCould[0]),
+                        1
+                    )
+                    day.punished.push(newCandidateCould.splice(0, 1))
+                } else {
+                    candidateCould[day.name].splice(
+                        candidateCould[day.name].indexOf(newCandidateCould[0]),
+                        1
+                    )
+                    employees[newCandidateCould[0]].n_assigned++
+                    day.virdict.push(newCandidateCould.splice(0, 1))
+                    day.remainingCapacity--
+                }
+            }
+            n++
         }
     })
 
@@ -234,16 +250,37 @@ composeMessage = function(slots, employees, week) {
         })
     })
 
-    s += "\n\nRemember that Minos and the Minotaur are watching you!"
+    if (anyPunished) {
+        s += "\n\n*Punishments*\n"
+        slots.forEach((day, indexDay) => {
+            if (day.punished.length) {
+                s += "On _" + day.name + "_, "
+                day.punished.forEach((id, index) => {
+                    s += employees[id].name
+                    if (index < day.punished.length - 2)
+                        s += ', '
+                    else if (index < day.punished.length - 1)
+                        s += ' and '
+                })
+                if (day.punished.length > 1)
+                    s += " have "
+                else
+                    s += " has "
+                s += "been punished by karma. "
+            }
+        })
+        s += "Sorry about that."
+    }
+
+    s += "\n\nRemember that Minos is watching you!"
     return s
 }
 
 
 /* BOT */
 
-const bot_token = '1751753383:AAFIcH-4EL5sg6RQOSUvKy0lnmT_q1qBDzc'
+const {bot_token, my_id} = require("./secret.js")
 const bot = new Telegraf(bot_token)
-const my_id = '128294952'
 const statusFile = '/home/fmarotta/minos/status.json'
 
 const intro = "<b>Greetings!</b>\n" + 
@@ -273,7 +310,7 @@ const instructions = "<b>Judgement process</b>\n" +
     "staying home watching Netflix, so you may well go to the Lab " +
     "instead; however, if you did not go on this particular day it " +
     "would not be a tragedy.\n" +
-    "<i>I must</i>: you cannot work from homo or you have the one:one " +
+    "<i>I must</i>: you cannot work from home or you have the one:one " +
     "with Paolo (or, alternatively, you have to feed the rat that " +
     "lives under your desk before it dies). In other words, it is " +
     "a matter of life or death.\n" +
@@ -303,8 +340,10 @@ try {
         Object.keys(chats[id].employees).forEach((person, indexPerson) => {
             var tmp = new Employee(
                 chats[id].employees[person].username,
-                chats[id].employees[person].name
+                chats[id].employees[person].first_name,
+                chats[id].employees[person].last_name
             )
+            tmp.name = chats[id].employees[person].name
             tmp.karma = chats[id].employees[person].karma
             tmp.n_assigned = chats[id].employees[person].n_assigned
             chats[id].employees[person] = tmp
@@ -319,12 +358,12 @@ try {
             tmp.capacity = day.capacity
             tmp.remainingCapacity = day.remainingCapacity
             tmp.preferences = day.preferences
-            tmp.candidateMust = day.candidateMust
-            tmp.candidateCould = day.candidateCould
             tmp.virdict = day.virdict
+            tmp.punished = day.punished
             tmp.judged = day.judged
             chats[id].slots[indexDay] = tmp
         })
+        chats[id].week = new Date(chats[id].week)
     })
 } catch (error) {
     if (error.code == "ENOENT")
@@ -409,9 +448,20 @@ bot.command('judge', (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
     var id = String(ctx.update.message.chat.id)
     chats[id].week = getNextMonday(new Date())
-    if (chats[id].previousMessage != null) {
-        bot.telegram.deleteMessage(id, chats[id].previousMessage)
-    }
+    if (chats[id].previousMessage != null)
+        bot.telegram.editMessageReplyMarkup(
+            id,
+            chats[id].previousMessage,
+            undefined,
+            {
+                inline_keyboard:[[
+                    {
+                        text: 'The apocalypse has already passed',
+                        callback_data: 'expired'
+                    }
+                ]]
+            }
+        )
 
     chats[id].slots = []
     DAYS.forEach((day_id, index) => {
@@ -427,6 +477,44 @@ bot.command('judge', (ctx) => {
             chats[id].week.getTime() + (day_index*24+hour_end)*60*60*1000
         ))
     })
+
+    if (TESTING) {
+        chats[id].slots = []
+        DAYS.forEach((day_id, index) => {
+            var day_name = day_id.split('_').join(' ')
+            day_name = day_name.charAt(0).toUpperCase() + day_name.slice(1)
+            var day_index = index / 2 - index % 2
+            var hour_start = index % 2 ? 14 : 9
+            var hour_end = index % 2 ? 18 : 14
+            chats[id].slots.push(new Slot(
+                day_id,
+                day_name,
+                chats[id].week.getTime() + (day_index*24+hour_start)*60*60*1000,
+                //chats[id].week.getTime() + (day_index*24+hour_end)*60*60*1000
+                new Date().getTime() + 1000*60
+            ))
+        })
+        //chats[id].slots[1].preferences = {"1": "must", "2": "must", "3": "could"}
+        chats[id].slots[3].preferences = {"1": "could", "2": "could", "3": "could", "4": "could"}
+        chats[id].slots[4].preferences = {"1": "could", "2": "could", "3": "could", "4": "could"}
+        chats[id].slots[5].preferences = {"1": "could", "2": "could", "3": "could", "4": "could"}
+        chats[id].slots[6].preferences = {"1": "could", "2": "could", "3": "could", "4": "could"}
+        chats[id].slots[7].preferences = {"1": "could", "2": "could", "3": "could", "4": "could"}
+        chats[id].slots[8].preferences = {"1": "could", "2": "could", "3": "could", "4": "could"}
+        //chats[id].slots[9].preferences = {"1": "could", "2": "could", "3": "could", "4": "could", "5": "could"}
+        chats[id].employees["1"] = new Employee("helene", "helene", "tonnele")
+        chats[id].employees["2"] = new Employee("lucia", "lucia", "troiani")
+        chats[id].employees["3"] = new Employee("rachele", "rachele", "d'angelo")
+        chats[id].employees["4"] = new Employee("reza", "reza", "mozafari")
+        chats[id].employees["5"] = new Employee("giulio", "giulio", "gioannini")
+        chats[id].employees[my_id] = new Employee("federico", "federico", "marotta")
+        chats[id].employees["1"].karma = 1
+        chats[id].employees["2"].karma = 2e-10
+        chats[id].employees["3"].karma = 1
+        chats[id].employees["4"].karma = 16
+        chats[id].employees["5"].karma = 1
+        chats[id].employees[my_id].karma = 1
+    }
 
     ctx.reply(
         composeMessage(
@@ -457,7 +545,8 @@ bot.command('karma', (ctx) => {
         })
     } else
         s += "There are no participants yet"
-    return ctx.reply(s, {parse_mode: 'HTML'})
+    ctx.reply(s, {parse_mode: 'HTML'})
+    return
 })
 
 bot.action(/slot(\d+)_(.*)/, (ctx) => {
@@ -465,28 +554,44 @@ bot.action(/slot(\d+)_(.*)/, (ctx) => {
     if (chats[id].week.getTime() != getNextMonday(new Date()).getTime()) {
         ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
         ctx.answerCbQuery("I'm afraid I can't do that, Dave")
-        ctx.editMessageText("<b>Goodbye</b>\n" +
-            "Dave, this conversation can serve no purpose anymore. " +
-            "This message pertained to last week: please say " +
-            "/judge to be judged again for next week.",
-            {parse_mode: "HTML"}
-        )
+        ctx.editMessageReplyMarkup({
+            inline_keyboard:[[
+                {
+                    text: 'The apocalypse has passed',
+                    callback_data: 'expired_cb'
+                }
+            ]]
+        })
         return
     }
 
     if (ctx.match[2] == 'null') {
         ctx.answerCbQuery("Please don't press this button. It hurts")
     } else {
-        ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
         ctx.answerCbQuery("On " +
             chats[id].slots[ctx.match[1]].name + ", " +
             "you " + ctx.match[2])
+        if (chats[id].employees[id] == null) {
+            chats[id].employees[id] = new Employee(
+                ctx.from.username,
+                ctx.from.first_name,
+                ctx.from.last_name
+            )
+            Object.keys(chats[id].employees).forEach((per, indexPer) => {
+            Object.keys(chats[id].employees).forEach((son, indexSon) => {
+                var e1 = chats[id].employees[per]
+                var e2 = chats[id].employees[son]
+                if (per != son && e1.first_name == e2.first_name)
+                    e1.name = e1.first_name + " " + e1.last_name
+            })
+            })
+        }
         if (chats[id].slots[ctx.match[1]].addPreference(
                 String(ctx.from.id),
                 ctx.from.username,
                 ctx.from.first_name + ' ' + ctx.from.last_name,
-                ctx.match[2],
-                chats[id].employees)) {
+                ctx.match[2])) {
+            ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
             ctx.editMessageText(
                 composeMessage(
                     chats[id].slots,
@@ -511,19 +616,35 @@ bot.action(/karma_(.+)_(\d+)_(.*)/, (ctx) => {
     var s = "<b>Judgement hour</b>\n"
     if (ctx.match[3] == "yes") {
         chats[id].employees[ctx.match[1]].increaseKarma()
-        s += chats[id].employees[ctx.match[1]].name +
+        s += "Good, " + chats[id].employees[ctx.match[1]].name +
             " was in the office on <i>" +
-            chats[id].slots[ctx.match[2]].name + "</i>"
+            chats[id].slots[ctx.match[2]].name + "</i>. His/her karma " +
+            "is " + chats[id].employees[ctx.match[1]].karma
     } else {
         chats[id].employees[ctx.match[1]].decreaseKarma()
-        s += chats[id].employees[ctx.match[1]].name +
+        s += "Oh no! " + chats[id].employees[ctx.match[1]].name +
             " was not in the office on <i>" +
-            chats[id].slots[ctx.match[2]].name + "</i>"
+            chats[id].slots[ctx.match[2]].name + "</i>. Now his/her " +
+            "karma has dropped to " + chats[id].employees[ctx.match[1]].karma
     }
     ctx.editMessageText(s, {parse_mode: 'HTML'})
+    return
 })
 
-var apocalypse = setInterval(function () {
+bot.action('expired', (ctx) => {
+    ctx.answerCbQuery("Please, use the latest judgement message")
+    return
+})
+
+bot.action('expired_cb', (ctx) => {
+    ctx.answerCbQuery("Please, say /judge")
+    return
+})
+
+var apocalypseTimer = 1000 * 60 * 50
+if (TESTING)
+    apocalypseTimer = 1000 * 15
+setInterval(function () {
     d = new Date()
     Object.keys(chats).forEach((chat_id, indexChat) => {
     chats[chat_id].slots.forEach((day, indexDay) => {
@@ -561,14 +682,9 @@ var apocalypse = setInterval(function () {
         }
     })
     })
-}, 1000 * 60 * 50)
+}, apocalypseTimer)
 
 
-/*
-bot.telegram.getUpdates(offset = 551022623700291421).then(
-    bot.launch()
-)
-*/
 bot.launch()
 console.log("Minos is judging!")
 
@@ -576,14 +692,23 @@ console.log("Minos is judging!")
 /*
 bot.on('sticker', (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
+    console.log(ctx.update.message.sticker)
     return ctx.reply('👍')
-})
-bot.hears(/thank/i, (ctx) => {
-    ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
-    return ctx.telegram.sendSticker(ctx.chat.id, 'CAADAgADAgQAAtJaiAECKCdNruu1MQI')
 })
 */
 
+bot.hears(/thank/i, (ctx) => {
+    ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
+    return ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB7GBsVCcyr9TLMaSQnjkoa7aRi5mmAAJPCAACCLcZAvm72tmVH89bHgQ')
+})
+bot.hears(/grazie/i, (ctx) => {
+    ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
+    return ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB7GBsVCcyr9TLMaSQnjkoa7aRi5mmAAJPCAACCLcZAvm72tmVH89bHgQ')
+})
+bot.hears(/ahaha/i, (ctx) => {
+    ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
+    return ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB6WBsU-UXVMt0nru4mh5mQM0p0XDrAAI_CAACCLcZAt3Doz_J4ffTHgQ')
+})
 
 function getRandomSubarray(arr, size) {
     var shuffled = arr.slice(0), i = arr.length, temp, index;
@@ -599,7 +724,7 @@ function getRandomSubarray(arr, size) {
 function getNextMonday(d) {
     d = new Date(d)
     // if it's past friday at noon, go to next week
-    if (d.getDay() == 0 || d.getDay() > 5 || d.getDay() == 5 && d.getHours() > 12)
+    if (d.getDay() == 6 || d.getDay() == 0 || d.getDay() == 5 && d.getHours() > 12)
         d = new Date(d.getTime() + 3*24*60*60*1000)
     var day = d.getDay()
     var diff = d.getDate() - day + (day == 0 ? -6:1) + 7
