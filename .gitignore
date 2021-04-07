@@ -1,3 +1,4 @@
+*.log
 status.json
 secret.js
 package-lock.json

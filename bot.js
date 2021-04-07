@@ -1,7 +1,26 @@
 const fs = require("fs")
 const {Telegraf, Markup} = require("telegraf")
 const seedrandom = require("seedrandom")
+const winston = require("winston")
+
 const TESTING = false
+const {combine, timestamp, prettyPrint} = winston.format
+const logger = winston.createLogger({
+    level: 'info',
+    format: combine(
+        timestamp(),
+        prettyPrint()
+    ),
+    transports: [
+        new winston.transports.File({filename: 'error.log', level: 'error'}),
+        new winston.transports.File({filename: 'combined.log'})
+    ]
+})
+logger.exitOnError = false
+if (TESTING)
+    logger.add(new winston.transports.Console({
+        format: winston.format.simple(),
+    }))
 
 const ROOM_CAPACITY = 3
 const ROOM_NAME = "the Sacred Office of Paolo Provero"
@@ -336,6 +355,7 @@ const karma = "<b>Karma</b>\n" +
 // restore the status
 try {
     var chats = JSON.parse(fs.readFileSync(statusFile))
+    logger.info("Reading chats from status file")
     Object.keys(chats).forEach((id, index) => {
         Object.keys(chats[id].employees).forEach((person, indexPerson) => {
             var tmp = new Employee(
@@ -374,10 +394,10 @@ try {
 
 // Use like this:   throw new Error('Example error')
 bot.catch((err, ctx) => {
-    console.log(err)
     bot.telegram.sendMessage(my_id, '!!Minos problem!!\n\n' + err.message)
     ctx.reply("Ooops, there was an internal error, sorry about that.")
     fs.writeFileSync(statusFile, JSON.stringify(chats))
+    logger.error(err)
     throw err
 })
 process.once('SIGINT', () => {
@@ -424,6 +444,8 @@ bot.command('start', (ctx) => {
     chats[id] = {}
     chats[id].slots = []
     chats[id].employees = {}
+    chats[id].week = null
+    chats[id].previousMessage = null
     ctx.reply(intro + quickStart, {parse_mode: 'HTML'})
     fs.writeFileSync(statusFile, JSON.stringify(chats))
     return
@@ -447,8 +469,25 @@ bot.command('help', (ctx) => {
 bot.command('judge', (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
     var id = String(ctx.update.message.chat.id)
-    chats[id].week = getNextMonday(new Date())
-    if (chats[id].previousMessage != null)
+    // if the apocalypse has passed
+    var monday = getNextMonday(new Date())
+    if (chats[id].week == null) { // first judgement
+        chats[id].week = monday
+        chats[id].slots = []
+        DAYS.forEach((day_id, index) => {
+            var day_name = day_id.split('_').join(' ')
+            day_name = day_name.charAt(0).toUpperCase() + day_name.slice(1)
+            var day_index = index / 2 - index % 2
+            var hour_start = index % 2 ? 14 : 9
+            var hour_end = index % 2 ? 18 : 14
+            chats[id].slots.push(new Slot(
+                day_id,
+                day_name,
+                chats[id].week.getTime() + (day_index*24+hour_start)*60*60*1000,
+                chats[id].week.getTime() + (day_index*24+hour_end)*60*60*1000
+            ))
+        })
+    } else if (chats[id].week.getTime() != monday.getTime()) {
         bot.telegram.editMessageReplyMarkup(
             id,
             chats[id].previousMessage,
@@ -462,21 +501,35 @@ bot.command('judge', (ctx) => {
                 ]]
             }
         )
-
-    chats[id].slots = []
-    DAYS.forEach((day_id, index) => {
-        var day_name = day_id.split('_').join(' ')
-        day_name = day_name.charAt(0).toUpperCase() + day_name.slice(1)
-        var day_index = index / 2 - index % 2
-        var hour_start = index % 2 ? 14 : 9
-        var hour_end = index % 2 ? 18 : 14
-        chats[id].slots.push(new Slot(
-            day_id,
-            day_name,
-            chats[id].week.getTime() + (day_index*24+hour_start)*60*60*1000,
-            chats[id].week.getTime() + (day_index*24+hour_end)*60*60*1000
-        ))
-    })
+        chats[id].week = monday
+        chats[id].slots = []
+        DAYS.forEach((day_id, index) => {
+            var day_name = day_id.split('_').join(' ')
+            day_name = day_name.charAt(0).toUpperCase() + day_name.slice(1)
+            var day_index = index / 2 - index % 2
+            var hour_start = index % 2 ? 14 : 9
+            var hour_end = index % 2 ? 18 : 14
+            chats[id].slots.push(new Slot(
+                day_id,
+                day_name,
+                chats[id].week.getTime() + (day_index*24+hour_start)*60*60*1000,
+                chats[id].week.getTime() + (day_index*24+hour_end)*60*60*1000
+            ))
+        })
+    } else // no apocalypse, just updating
+        bot.telegram.editMessageReplyMarkup(
+            id,
+            chats[id].previousMessage,
+            undefined,
+            {
+                inline_keyboard:[[
+                    {
+                        text: 'This judgement has expired',
+                        callback_data: 'expired'
+                    }
+                ]]
+            }
+        )
 
     if (TESTING) {
         chats[id].slots = []
@@ -571,8 +624,8 @@ bot.action(/slot(\d+)_(.*)/, (ctx) => {
         ctx.answerCbQuery("On " +
             chats[id].slots[ctx.match[1]].name + ", " +
             "you " + ctx.match[2])
-        if (chats[id].employees[id] == null) {
-            chats[id].employees[id] = new Employee(
+        if (chats[id].employees[ctx.from.id] == null) {
+            chats[id].employees[ctx.from.id] = new Employee(
                 ctx.from.username,
                 ctx.from.first_name,
                 ctx.from.last_name
@@ -686,7 +739,7 @@ setInterval(function () {
 
 
 bot.launch()
-console.log("Minos is judging!")
+logger.info("Minos is judging!")
 
 
 /*
@@ -732,5 +785,7 @@ function getNextMonday(d) {
     d.setMinutes(0)
     d.setSeconds(0)
     d.setMilliseconds(0)
+    if (TESTING)
+        return new Date(new Date().getTime() + 1000*30)
     return new Date(d.setDate(diff))
 }
