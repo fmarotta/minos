@@ -1,0 +1,5 @@
+start - Start me
+stop - Stop me
+help - Is something not clear?
+judge - Decide who will go to the office
+karma - Print the karma points

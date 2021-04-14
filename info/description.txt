@@ -1,0 +1,1 @@
+Suppose there are n employees for an office with p places (p < n). Who should go to the office? This bot can help you schedule the turns taking the preferences of everybody into account.
