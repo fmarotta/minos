@@ -1,4 +1,6 @@
 *.log
 status.json
+credentials.json
+token.json
 secret.js
 package-lock.json

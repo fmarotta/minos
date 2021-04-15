@@ -1,7 +1,9 @@
 const fs = require("fs")
-const {Telegraf, Markup} = require("telegraf")
 const seedrandom = require("seedrandom")
+const {Telegraf, Markup} = require("telegraf")
 const winston = require("winston")
+const googlecalendar = require("./googlecalendar.js")
+const {workDir, botToken, myId, calId} = require("./secret.js")
 const TESTING = false
 
 // params
@@ -9,8 +11,8 @@ const TESTING = false
 const ROOM_CAPACITY = 3
 const ROOM_NAME = "the Sacred Office of Paolo Provero"
 const ROOM_DOOMSDAY = -(2*24+12)*60*60*1000 // relative to the next monday
+const ROOM_APOCALYPSE_MESSAGE = "Don't forget to submit the form"
 
-const INITIAL_KARMA = 128
 const DAYS = [
     'mon_am', 'mon_pm',
     'tue_am', 'tue_pm',
@@ -38,24 +40,27 @@ DAYS.forEach((day_id, index) => {
     ])
 })
 
+const INITIAL_KARMA = 128
+
 // logger
 
 const {combine, timestamp, prettyPrint} = winston.format
 const logger = winston.createLogger({
-    level: 'info',
     format: combine(
         timestamp(),
         prettyPrint()
     ),
     transports: [
-        new winston.transports.File({filename: 'error.log', level: 'error'}),
-        new winston.transports.File({filename: 'combined.log'})
+        new winston.transports.File({filename: workDir + 'error.log', level: 'error'}),
+        new winston.transports.File({filename: workDir + 'combined.log', level: 'debug'}),
+        new winston.transports.Console({format: winston.format.simple(), level: 'debug'}),
     ]
 })
 logger.exitOnError = false
 if (TESTING)
     logger.add(new winston.transports.Console({
         format: winston.format.simple(),
+        level: 'debug',
     }))
 
 // classes
@@ -68,7 +73,8 @@ class Employee {
         this.last_name = last_name
         this.name = first_name
         this.karma = INITIAL_KARMA
-        this.n_assigned = 0
+        if (username == undefined)
+            this.username = '<a href="tg://user?id=' + id + '>' + name + '</a>'
     }
     punish() {
         if (INITIAL_KARMA*Math.random() >= this.karma) {
@@ -99,7 +105,7 @@ class Slot {
         this.virdict = [] // array with max three names
         this.punished = [] // array with who has been punished
     }
-    addPreference(id, username, name, what) {
+    addPreference(id, what) {
         // if the preference is updated, return true; if nothing 
         // changed, return false
         if (this.preferences[id] == what)
@@ -120,11 +126,15 @@ class Slot {
 }
 
 class Judgement {
-    constructor(epoch, index, day, virdict) {
-        this.epoch = epoch
+    constructor(start, end, index, day, virdict) {
+        this.start = start
+        this.end = end
         this.index = index
         this.day = day
-        this.virdict = virdict
+        this.virdict = []
+        virdict.forEach((person, index) => {
+            this.virdict.push(person)
+        })
     }
 }
 
@@ -136,6 +146,7 @@ class Chat {
         this.judgements = {}
         this.week = null
         this.previousMessage = null
+        this.addToCalendar = false
     }
     updateWeek(monday) {
         this.week = monday
@@ -154,6 +165,65 @@ class Chat {
             ))
         })
     }
+    updateEmployee(id, username, first_name, last_name) {
+        if (this.employees[id] == null)
+            this.employees[id] = new Employee(
+                String(id),
+                username,
+                first_name,
+                last_name
+            )
+        else {
+            this.employees[id].username = username
+            this.employees[id].first_name = first_name
+            this.employees[id].last_name = last_name
+        }
+        Object.keys(this.employees).forEach((per, indexPer) => {
+        Object.keys(this.employees).forEach((son, indexSon) => {
+            var e1 = this.employees[per]
+            var e2 = this.employees[son]
+            if (per != son && e1.first_name == e2.first_name)
+                e1.name = e1.first_name + " " + e1.last_name
+        })
+        })
+    }
+    getWeek() {
+        return this.week
+    }
+    getCurrentWeek() {
+        return new Date(this.getWeek().getTime() - 7*24*60*60*1000)
+    }
+    getDoomsday() {
+        return new Date(this.getWeek().getTime() + ROOM_DOOMSDAY)
+    }
+    printWeek() {
+        return this.getWeek().toLocaleString(
+            'en-GB',
+            {weekday: 'long', month: 'long', day: 'numeric'}
+        )
+    }
+    printNumericWeek() {
+        return this.getWeek().toLocaleString(
+            'en-GB',
+            {year: 'numeric', month: 'numeric', day: 'numeric'}
+        )
+    }
+    printNumericCurrentWeek() {
+        return this.getCurrentWeek().toLocaleString(
+            'en-GB',
+            {year: 'numeric', month: 'numeric', day: 'numeric'}
+        )
+    }
+    printDoomsday() {
+        return this.getDoomsday().toLocaleString(
+            'en-GB',
+            {weekday: 'long', month: 'long', day: 'numeric'}
+        ) + " at " +
+        this.getDoomsday().toLocaleTimeString(
+            'en-GB',
+            {timestyle: 'full', hour: "2-digit", minute: "2-digit" }
+        )
+    }
     getDays() {
         return this.slots
     }
@@ -166,30 +236,24 @@ class Chat {
     getJudgements() {
         return Object.keys(this.judgements)
     }
+    getThisWeeksJudgements() {
+        // they must come before the week's monday
+        var r = []
+        Object.keys(this.judgements).forEach((judgement, index) => {
+            if (judgement < this.week.getTime())
+                r.push(this.judgements[judgement])
+        })
+        return r
+    }
 }
 
 composeMessage = function(chat) {
-    var s = "*Week of the " +
-        chat.week.toLocaleString(
-            'en-GB',
-            {year: 'numeric', month: 'numeric', day: 'numeric' }
-        ) + "*\n"
+    var s = "*Week of the " + chat.printNumericWeek() + "*\n"
     s += "Thou shalt now be judged for the week starting on " +
-        chat.week.toLocaleString(
-            'en-GB',
-            {weekday: 'long', month: 'long', day: 'numeric' }
-        ) + ". Confess your preferences " +
+        chat.printWeek() + ". Confess your preferences " +
         "by tapping the buttons below and I shall decide when you " +
         "can enter the Office, which has only " + ROOM_CAPACITY +
-        " places. You have time until " +
-        new Date(chat.week.getTime() + ROOM_DOOMSDAY).toLocaleString(
-            'en-GB',
-            {weekday: 'long', month: 'long', day: 'numeric'}
-        ) + " at " +
-        new Date(chat.week.getTime() + ROOM_DOOMSDAY).toLocaleTimeString(
-            'en-GB',
-            {timestyle: 'full', hour: "2-digit", minute: "2-digit" }
-        ) +
+        " places. You have time until " + chat.printDoomsday() +
         " to change your preferences. Then, the apocalypse " +
         "will come and you will be permanently judged, for this week.\n"
 
@@ -203,15 +267,15 @@ composeMessage = function(chat) {
         })
     })
  
-    // reset the previous decisions
-    chat.getEmployeesId().forEach((id, index) => {
-        chat.employees[id].n_assigned = 0
-    })
-
-    // easy decisions
     var anyPunished = false
     var candidateMust = {}
     var candidateCould = {}
+    var nAssigned = {}
+    chat.getEmployeesId().forEach((id, index) => {
+        nAssigned[id] = 0
+    })
+
+    // easy decisions
     chat.getDays().forEach((day, indexDay) => {
         day.remainingCapacity = day.capacity
         day.virdict = []
@@ -260,14 +324,14 @@ composeMessage = function(chat) {
             )
         day.addLuckyBastards(candidateMust[day.name])
         for (var i = 0; i < candidateMust[day.name].length; i++)
-            chat.employees[candidateMust[day.name][i]].n_assigned++
+            nAssigned[candidateMust[day.name][i]]++
         candidateMust[day.name] = []
 
         if (candidateCould[day.name].length
         && candidateCould[day.name].length <= day.remainingCapacity) {
             day.addLuckyBastards(candidateCould[day.name])
             for (var i = 0; i < candidateCould[day.name].length; i++)
-                chat.employees[candidateCould[day.name][i]].n_assigned++
+                nAssigned[candidateCould[day.name][i]]++
             candidateCould[day.name] = []
         }
     })
@@ -277,13 +341,13 @@ composeMessage = function(chat) {
     chat.getRandomDays().forEach((day, indexDay) => {
         if (candidateCould[day.name].length == 0 || day.remainingCapacity == 0)
             return
-        // sort the candidates in ascending order of n_assigned 
-        // (settle spares at random)
+        // sort the candidates in ascending order of nAssigned (settle 
+        // spares at random)
         var n = 0
         while (day.remainingCapacity && n <= chat.slots.length) {
             var newCandidateCould = []
             candidateCould[day.name].forEach((id, indexId) => {
-                if (chat.employees[id].n_assigned == n)
+                if (nAssigned[id] == n)
                     newCandidateCould.push(id)
             })
             if (newCandidateCould.length) {
@@ -315,7 +379,7 @@ composeMessage = function(chat) {
                         candidateCould[day.name].indexOf(newCandidateCould[0]),
                         1
                     )
-                    chat.employees[newCandidateCould[0]].n_assigned++
+                    nAssigned[newCandidateCould[0]]++
                     day.virdict.push(newCandidateCould.splice(0, 1)[0])
                     day.remainingCapacity--
                 }
@@ -327,14 +391,12 @@ composeMessage = function(chat) {
     // judgements
     chat.getDays().forEach((day, indexDay) => {
         chat.judgements[day.end] = new Judgement(
+            day.start,
             day.end,
             indexDay,
             day.name,
-            []
+            day.virdict
         )
-        day.virdict.forEach((person, index) => {
-            chat.judgements[day.end].virdict.push(person)
-        })
     })
 
     s += "\n\n*Virdict*"
@@ -374,15 +436,16 @@ composeMessage = function(chat) {
 }
 
 // restore the status
-const statusFile = 'status.json'
+const statusFile = workDir + "status.json"
 try {
     var parsedChats = JSON.parse(fs.readFileSync(statusFile))
     var chats = {}
-    logger.info("Reading chats from status file")
     Object.keys(parsedChats).forEach((id, index) => {
+        logger.info("Reading chat " + id + " from status file")
         chats[id] = new Chat(id)
-        chats[id].week = parsedChats[id].week
+        chats[id].week = new Date(parsedChats[id].week)
         chats[id].previousMessage = parsedChats[id].previousMessage
+        chats[id].addToCalendar = parsedChats[id].addToCalendar
         if (parsedChats[id].employees != null)
             Object.keys(parsedChats[id].employees).forEach((person, indexPerson) => {
                 var tmp = new Employee(
@@ -393,7 +456,6 @@ try {
                 )
                 tmp.name = parsedChats[id].employees[person].name
                 tmp.karma = parsedChats[id].employees[person].karma
-                tmp.n_assigned = parsedChats[id].employees[person].n_assigned
                 chats[id].employees[person] = tmp
             })
         if (parsedChats[id].slots != null)
@@ -414,9 +476,10 @@ try {
         if (parsedChats[id].judgements != null)
             Object.keys(parsedChats[id].judgements).forEach((judgement, index) => {
                 var tmp = new Judgement(
-                    parsedChats[id].judgements[judgement].epoch, 
-                    parsedChats[id].judgements[judgement].index, 
-                    parsedChats[id].judgements[judgement].day, 
+                    parsedChats[id].judgements[judgement].start,
+                    parsedChats[id].judgements[judgement].end,
+                    parsedChats[id].judgements[judgement].index,
+                    parsedChats[id].judgements[judgement].day,
                     parsedChats[id].judgements[judgement].virdict
                 )
                 chats[id].judgements[judgement] = tmp
@@ -431,8 +494,7 @@ try {
 
 // bot
 
-const {bot_token, my_id} = require("./secret.js")
-const bot = new Telegraf(bot_token)
+const bot = new Telegraf(botToken)
 
 const intro = "<b>Greetings!</b>\n" + 
     "I am Minos, king of Crete, son of Zeus and Europa, " +
@@ -485,7 +547,7 @@ const karma = "<b>Karma</b>\n" +
     "once for your loss of karma, I will not punish you again."
 
 bot.catch((err, ctx) => {
-    bot.telegram.sendMessage(my_id, '!!Minos problem!!\n\n' + err.message)
+    bot.telegram.sendMessage(myId, '!!Minos problem!!\n\n' + err.message)
     ctx.reply("Ooops, there was an internal error, sorry about that.")
     fs.writeFileSync(statusFile, JSON.stringify(chats, null, 2))
     logger.error(err)
@@ -504,8 +566,12 @@ process.once('SIGTERM', () => {
 
 bot.on("message", (ctx, next) => {
     ctx.getChat().then((c) => {
+        logger.debug("New message from " + c.id + ": " +
+            ctx.update.message.text)
         if (Object.keys(chats).indexOf(String(c.id)) == -1) {
+            logger.debug("This message comes from an unrecognised chat")
             if (Object.keys(chats).length) {
+                logger.debug("There is already another chat in the world, ignoring")
                 //ctx.reply("Sorry, there can be only one")
                 return
             } else if (ctx.update.message.text == '/start') {
@@ -521,8 +587,10 @@ bot.on("message", (ctx, next) => {
 
 bot.on("callback_query", (ctx, next) => {
     ctx.getChat().then((c) => {
+        logger.debug("New cb query from " + c.id)
         if (Object.keys(chats).indexOf(String(c.id)) == -1) {
-            ctx.reply("Sorry, there can be only one")
+            logger.debug("This cb query comes from an unrecognised chat")
+            //ctx.reply("Sorry, there can be only one")
             return
         }
         return next()
@@ -534,6 +602,7 @@ bot.command('start', (ctx) => {
     var id = String(ctx.update.message.chat.id)
     chats[id] = new Chat(id)
     ctx.reply(intro + quickStart, {parse_mode: 'HTML'})
+    logger.debug("Initialising new Chat for " + id)
     fs.writeFileSync(statusFile, JSON.stringify(chats, null, 2))
     return
 })
@@ -543,6 +612,7 @@ bot.command('stop', (ctx) => {
     var id = String(ctx.update.message.chat.id)
     ctx.reply("OK, bye!")
     chats[id] = null
+    logger.debug("Stopping for " + id)
     fs.writeFileSync(statusFile, JSON.stringify(chats, null, 2))
     return
 })
@@ -556,11 +626,14 @@ bot.command('help', (ctx) => {
 bot.command('judge', (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
     var id = String(ctx.update.message.chat.id)
-    var monday = getNextMonday(new Date())
+    var monday = getNextMonday(new Date(), ROOM_DOOMSDAY)
+    logger.debug("/judging for " + id)
     if (!chats[id].slots.length) {
+        logger.debug("This is the first judgement")
         // first judgement
         chats[id].updateWeek(monday)
     } else if (chats[id].week.getTime() != monday.getTime()) {
+        logger.debug("This is a new judgement after the apocalypse")
         // apocalypse has passed
         chats[id].updateWeek(monday)
         bot.telegram.editMessageReplyMarkup(
@@ -577,6 +650,7 @@ bot.command('judge', (ctx) => {
             }
         )
     } else {
+        logger.debug("This is an updated judgement")
         // no apocalypse, just updating
         bot.telegram.editMessageReplyMarkup(
             id,
@@ -622,13 +696,13 @@ bot.command('judge', (ctx) => {
         chats[id].employees["3"] = new Employee(3, "rd", "rd", "d")
         chats[id].employees["4"] = new Employee(4, "rm", "rm", "m")
         chats[id].employees["5"] = new Employee(5, "gg", "gg", "g")
-        chats[id].employees[my_id] = new Employee(my_id, "fm", "fm", "m")
+        chats[id].employees[myId] = new Employee(myId, "fm", "fm", "m")
         chats[id].employees["1"].karma = 1
         chats[id].employees["2"].karma = 2e-10
         chats[id].employees["3"].karma = 1
         chats[id].employees["4"].karma = 16
         chats[id].employees["5"].karma = 1
-        chats[id].employees[my_id].karma = 1
+        chats[id].employees[myId].karma = 1
         console.log(chats)
     }
 
@@ -643,6 +717,22 @@ bot.command('judge', (ctx) => {
     })
 
     fs.writeFileSync(statusFile, JSON.stringify(chats, null, 2))
+    return
+})
+
+bot.command('virdict', (ctx) => {
+    ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
+    var id = String(ctx.update.message.chat.id)
+    var s = "<b>Virdict for the week of the " + chats[id].printNumericCurrentWeek() + "</b>"
+    chats[id].getThisWeeksJudgements().forEach((judgement, index) => {
+        s += "\n<i>" + judgement.day + "</i>: "
+        judgement.virdict.forEach((person, indexPerson) => {
+            s += chats[id].employees[person].name
+            if (indexPerson < judgement.virdict.length - 1)
+                s += ', '
+        })
+    })
+    ctx.reply(s, {parse_mode: 'HTML'})
     return
 })
 
@@ -663,7 +753,9 @@ bot.command('karma', (ctx) => {
 
 bot.action(/slot(\d+)_(.*)/, (ctx) => {
     var id = String(ctx.update.callback_query.message.chat.id)
-    if (chats[id].week.getTime() != getNextMonday(new Date()).getTime()) {
+    logger.debug("Setting preferences for " + id)
+    if (chats[id].week.getTime() != getNextMonday(new Date(), ROOM_DOOMSDAY).getTime()) {
+        logger.debug("We are past the apocalypse")
         ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
         ctx.answerCbQuery("I'm afraid I can't do that, Dave")
         ctx.editMessageReplyMarkup({
@@ -677,36 +769,17 @@ bot.action(/slot(\d+)_(.*)/, (ctx) => {
         return
     }
 
+    logger.debug("We are within the judgement period")
     if (ctx.match[2] == 'null') {
         ctx.answerCbQuery("Please don't press this button. It hurts")
     } else {
-        ctx.answerCbQuery("On " +
-            chats[id].slots[ctx.match[1]].name + ", " +
+        ctx.answerCbQuery("On " + chats[id].slots[ctx.match[1]].name + ", " +
             "you " + ctx.match[2])
-        if (chats[id].employees[ctx.from.id] == null) {
-            chats[id].employees[ctx.from.id] = new Employee(
-                ctx.from.id,
-                ctx.from.username,
-                ctx.from.first_name,
-                ctx.from.last_name
-            )
-            Object.keys(chats[id].employees).forEach((per, indexPer) => {
-            Object.keys(chats[id].employees).forEach((son, indexSon) => {
-                var e1 = chats[id].employees[per]
-                var e2 = chats[id].employees[son]
-                if (per != son && e1.first_name == e2.first_name)
-                    e1.name = e1.first_name + " " + e1.last_name
-            })
-            if (chats[id].employees[per].username == undefined)
-                chats[id].employees[per].username = '<a href="tg://user?id=' +
-                    per + '>' + chats[id].employees[per].name + '</a>'
-            })
-        }
+        logger.debug("Updating Employee " + ctx.from.first_name)
+        chats[id].updateEmployee(ctx.from.id, ctx.from.username,
+            ctx.from.first_name, ctx.from.last_name)
         if (chats[id].slots[ctx.match[1]].addPreference(
-                String(ctx.from.id),
-                ctx.from.username,
-                ctx.from.first_name + ' ' + ctx.from.last_name,
-                ctx.match[2])) {
+        String(ctx.from.id), ctx.match[2])) {
             ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
             ctx.editMessageText(
                 composeMessage(chats[id]),
@@ -758,7 +831,37 @@ if (TESTING)
     apocalypseTimer = 1000 * 15
 setInterval(function () {
     d = new Date()
+    logger.debug("Tic, Toc...")
     Object.keys(chats).forEach((chat_id, indexChat) => {
+    // send reminders of the apocalypse
+    if (d.getTime() > chats[chat_id].getDoomsday().getTime() - 3*apocalypseTimer
+    && d.getTime() < chats[chat_id].getDoomsday().getTime()
+    && !chats[chat_id].addToCalendar) {
+        bot.telegram.sendChatAction(chat_id, 'typing')
+        var s = "<b>The end is near!</b>\n" +
+            ROOM_APOCALYPSE_MESSAGE
+        bot.telegram.sendMessage(chat_id, s, {parse_mode: "HTML"})
+        chats[chat_id].addToCalendar = true
+    }
+    // add evenst to google calendar
+    if (chats[chat_id].addToCalendar
+    && d.getTime() > chats[chat_id].getDoomsday().getTime()) {
+        logger.debug("Adding events to calendar")
+        var events = []
+        chats[chat_id].getJudgements().forEach((judgement, indexJudge) => {
+            chats[chat_id].judgements[judgement].virdict.forEach((person, indexPerson) => {
+                events.push({
+                    'summary': chats[chat_id].employees[person].name,
+                    'description': 'Event created by Minos (https://telegram.me/minosthebot)',
+                    'start': {'dateTime': new Date(chats[chat_id].judgements[judgement].start)},
+                    'end': {'dateTime': new Date(chats[chat_id].judgements[judgement].end)},
+                })
+            })
+        })
+        googlecalendar.addEvents(calId, events)
+        chats[chat_id].addToCalendar = false
+    }
+    // send judgement messages
     chats[chat_id].getJudgements().forEach((judgement, indexJudge) => {
         if (d.getTime() > judgement) {
             var j = chats[chat_id].judgements[judgement]
@@ -797,10 +900,10 @@ setInterval(function () {
     })
 }, apocalypseTimer)
 
-
 bot.launch()
 logger.info("Minos is judging!")
 
+// easter eggs
 
 /*
 bot.on('sticker', (ctx) => {
@@ -809,7 +912,6 @@ bot.on('sticker', (ctx) => {
     return ctx.reply('👍')
 })
 */
-
 bot.hears(/thank/i, (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
     return ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB7GBsVCcyr9TLMaSQnjkoa7aRi5mmAAJPCAACCLcZAvm72tmVH89bHgQ')
@@ -823,6 +925,8 @@ bot.hears(/ahaha/i, (ctx) => {
     return ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB6WBsU-UXVMt0nru4mh5mQM0p0XDrAAI_CAACCLcZAt3Doz_J4ffTHgQ')
 })
 
+// helper functions
+
 function getRandomSubarray(arr, size) {
     var shuffled = arr.slice(0), i = arr.length, temp, index;
     while (i--) {
@@ -834,13 +938,12 @@ function getRandomSubarray(arr, size) {
     return shuffled.slice(0, size);
 }
 
-function getNextMonday(d) {
+function getNextMonday(d, doomsday) {
     d = new Date(d)
-    // if it's past friday at noon, go to next week
-    if (d.getDay() == 6 || d.getDay() == 0 || d.getDay() == 5 && d.getHours() > 12)
-        d = new Date(d.getTime() + 3*24*60*60*1000)
+    // if it's past the apocalypse, go to next week
+    d = new Date(d.getTime() - doomsday)
     var day = d.getDay()
-    var diff = d.getDate() - day + (day == 0 ? -6:1) + 7
+    var diff = d.getDate() - day + (day == 0 ? -6 : 1) + 7
     d.setHours(0)
     d.setMinutes(0)
     d.setSeconds(0)
