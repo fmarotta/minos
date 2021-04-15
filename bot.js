@@ -84,6 +84,9 @@ class Employee {
         }
         return false
     }
+    unpunish() {
+        this.karma /= 2
+    }
     increaseKarma() {
         this.karma += 8
         this.karma = Math.min(this.karma, INITIAL_KARMA)
@@ -278,6 +281,12 @@ composeMessage = function(chat) {
     // easy decisions
     chat.getDays().forEach((day, indexDay) => {
         day.remainingCapacity = day.capacity
+        day.punished.forEach((id, indexId) => {
+            // Needed because otherwise one can press "I could" and "I 
+            // can't" repeatedly, and each time his karma would be 
+            // doubled without effort
+            chat.employees[id].unpunish()
+        })
         day.virdict = []
         day.punished = []
         candidateMust[day.name] = []
