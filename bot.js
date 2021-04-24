@@ -157,9 +157,9 @@ class Chat {
         DAYS.forEach((day_id, index) => {
             var day_name = day_id.split('_').join(' ')
             day_name = day_name.charAt(0).toUpperCase() + day_name.slice(1)
-            var day_index = index / 2 - index % 2
+            var day_index = Math.floor(index / 2) - index % 2
             var hour_start = index % 2 ? 14 : 9
-            var hour_end = index % 2 ? 30 : 14
+            var hour_end = index % 2 ? 18 : 14
             this.slots.push(new Slot(
                 day_id,
                 day_name,
@@ -732,7 +732,13 @@ bot.command('judge', (ctx) => {
 bot.command('virdict', (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
     var id = String(ctx.update.message.chat.id)
-    var s = "<b>Virdict for the week of the " + chats[id].printNumericCurrentWeek() + "</b>"
+    if (!chats[id].getThisWeeksJudgements().length) {
+        ctx.reply("Last week I gave no judgement", {parse_mode: 'HTML'})
+        return
+    }
+    var s = "<b>Week of the " + chats[id].printNumericCurrentWeek() + "</b>"
+    s += "Last week, considering your preferences, I gave the following virdict.\n\n"
+    s += "<b>Virdict</b>"
     chats[id].getThisWeeksJudgements().forEach((judgement, index) => {
         s += "\n<i>" + judgement.day + "</i>: "
         judgement.virdict.forEach((person, indexPerson) => {
@@ -858,17 +864,21 @@ setInterval(function () {
         logger.debug("Adding events to calendar")
         var events = []
         chats[chat_id].getJudgements().forEach((judgement, indexJudge) => {
-            chats[chat_id].judgements[judgement].virdict.forEach((person, indexPerson) => {
-                events.push({
-                    'summary': chats[chat_id].employees[person].name,
-                    'description': 'Event created by Minos (https://telegram.me/minosthebot)',
-                    'start': {'dateTime': new Date(chats[chat_id].judgements[judgement].start)},
-                    'end': {'dateTime': new Date(chats[chat_id].judgements[judgement].end)},
+            if (chats[chat_id].getWeek().getTime() < judgement) {
+                chats[chat_id].judgements[judgement].virdict.forEach((person, indexPerson) => {
+                    events.push({
+                        'summary': chats[chat_id].employees[person].name,
+                        'description': 'Event created by Minos (https://telegram.me/minosthebot)',
+                        'start': {'dateTime': new Date(chats[chat_id].judgements[judgement].start)},
+                        'end': {'dateTime': new Date(chats[chat_id].judgements[judgement].end)},
+                    })
                 })
-            })
+            }
         })
+        logger.debug(events)
         googlecalendar.addEvents(calId, events)
         chats[chat_id].addToCalendar = false
+
     }
     // send judgement messages
     chats[chat_id].getJudgements().forEach((judgement, indexJudge) => {

@@ -2,4 +2,5 @@ start - Start me
 stop - Stop me
 help - Is something not clear?
 judge - Decide who will go to the office
+virdict - Show last week's virdict
 karma - Print the karma points
