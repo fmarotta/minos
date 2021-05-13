@@ -3,7 +3,7 @@ const seedrandom = require("seedrandom")
 const {Telegraf, Markup} = require("telegraf")
 const winston = require("winston")
 const googlecalendar = require("./googlecalendar.js")
-const {workDir, botToken, myId, calId} = require("./secret.js")
+const {botToken, myId, calId} = require("./secret.js")
 const TESTING = false
 
 // params
@@ -51,8 +51,8 @@ const logger = winston.createLogger({
         prettyPrint()
     ),
     transports: [
-        new winston.transports.File({filename: workDir + 'error.log', level: 'error'}),
-        new winston.transports.File({filename: workDir + 'combined.log', level: 'debug'}),
+        new winston.transports.File({filename: __dirname + '/error.log', level: 'error'}),
+        new winston.transports.File({filename: __dirname + '/combined.log', level: 'debug'}),
         new winston.transports.Console({format: winston.format.simple(), level: 'debug'}),
     ]
 })
@@ -157,7 +157,7 @@ class Chat {
         DAYS.forEach((day_id, index) => {
             var day_name = day_id.split('_').join(' ')
             day_name = day_name.charAt(0).toUpperCase() + day_name.slice(1)
-            var day_index = index / 2 - index % 2
+            var day_index = index / 2
             var hour_start = index % 2 ? 14 : 9
             var hour_end = index % 2 ? 30 : 14
             this.slots.push(new Slot(
@@ -445,7 +445,8 @@ composeMessage = function(chat) {
 }
 
 // restore the status
-const statusFile = workDir + "status.json"
+const statusFile = __dirname + "/status.json"
+console.log(statusFile)
 try {
     var parsedChats = JSON.parse(fs.readFileSync(statusFile))
     var chats = {}
