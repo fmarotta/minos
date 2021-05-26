@@ -157,9 +157,9 @@ class Chat {
         DAYS.forEach((day_id, index) => {
             var day_name = day_id.split('_').join(' ')
             day_name = day_name.charAt(0).toUpperCase() + day_name.slice(1)
-            var day_index = index / 2
+            var day_index = Math.floor(index / 2)
             var hour_start = index % 2 ? 14 : 9
-            var hour_end = index % 2 ? 30 : 14
+            var hour_end = index % 2 ? 18 : 14
             this.slots.push(new Slot(
                 day_id,
                 day_name,
