@@ -157,7 +157,7 @@ class Chat {
         DAYS.forEach((day_id, index) => {
             var day_name = day_id.split('_').join(' ')
             day_name = day_name.charAt(0).toUpperCase() + day_name.slice(1)
-            var day_index = Math.floor(index / 2) - index % 2
+            var day_index = Math.floor(index / 2)
             var hour_start = index % 2 ? 14 : 9
             var hour_end = index % 2 ? 18 : 14
             this.slots.push(new Slot(
@@ -194,7 +194,10 @@ class Chat {
         return this.week
     }
     getCurrentWeek() {
-        return new Date(this.getWeek().getTime() - 7*24*60*60*1000)
+        if (new Date().getTime() < this.getDoomsday())
+            return new Date(this.getWeek().getTime() - 7*24*60*60*1000)
+        else
+            return new Date(this.getWeek().getTime())
     }
     getDoomsday() {
         return new Date(this.getWeek().getTime() + ROOM_DOOMSDAY)
@@ -240,12 +243,19 @@ class Chat {
         return Object.keys(this.judgements)
     }
     getThisWeeksJudgements() {
-        // they must come before the week's monday
         var r = []
-        Object.keys(this.judgements).forEach((judgement, index) => {
-            if (judgement < this.week.getTime())
+        if (new Date().getTime() < this.getDoomsday()) {
+            // if the apocalypse has not yet arrived, they must come 
+            // before the week's monday
+            Object.keys(this.judgements).forEach((judgement, index) => {
+                if (judgement < this.week.getTime())
+                    r.push(this.judgements[judgement])
+            })
+        } else {
+            Object.keys(this.judgements).forEach((judgement, index) => {
                 r.push(this.judgements[judgement])
-        })
+            })
+        }
         return r
     }
 }
@@ -736,7 +746,7 @@ bot.command('virdict', (ctx) => {
         ctx.reply("Last week I gave no judgement", {parse_mode: 'HTML'})
         return
     }
-    var s = "<b>Week of the " + chats[id].printNumericCurrentWeek() + "</b>"
+    var s = "<b>Week of the " + chats[id].printNumericCurrentWeek() + "</b>\n"
     s += "Last week, considering your preferences, I gave the following virdict.\n\n"
     s += "<b>Virdict</b>"
     chats[id].getThisWeeksJudgements().forEach((judgement, index) => {
@@ -858,7 +868,7 @@ setInterval(function () {
         bot.telegram.sendMessage(chat_id, s, {parse_mode: "HTML"})
         chats[chat_id].addToCalendar = true
     }
-    // add evenst to google calendar
+    // add events to google calendar
     if (chats[chat_id].addToCalendar
     && d.getTime() > chats[chat_id].getDoomsday().getTime()) {
         logger.debug("Adding events to calendar")
@@ -933,15 +943,29 @@ bot.on('sticker', (ctx) => {
 */
 bot.hears(/thank/i, (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
-    return ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB7GBsVCcyr9TLMaSQnjkoa7aRi5mmAAJPCAACCLcZAvm72tmVH89bHgQ')
+    if (Math.random() < 0.5)
+        ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB7GBsVCcyr9TLMaSQnjkoa7aRi5mmAAJPCAACCLcZAvm72tmVH89bHgQ')
+    else
+        ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIFfWCMIzIPDbBqnR273nbN_LpFHyoBAAJPCAACCLcZAvm72tmVH89bHwQ')
+    return
 })
 bot.hears(/grazie/i, (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
-    return ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB7GBsVCcyr9TLMaSQnjkoa7aRi5mmAAJPCAACCLcZAvm72tmVH89bHgQ')
+    if (Math.random() < 0.5)
+        ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB7GBsVCcyr9TLMaSQnjkoa7aRi5mmAAJPCAACCLcZAvm72tmVH89bHgQ')
+    else
+        ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIFfWCMIzIPDbBqnR273nbN_LpFHyoBAAJPCAACCLcZAvm72tmVH89bHwQ')
+    return
+})
+bot.hears(/sorry/i, (ctx) => {
+    ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
+    ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIFf2CMI9kwIKfgswh91554ondv0eHfAAJGCAACCLcZAhHboqu4sMr4HwQ')
+    return
 })
 bot.hears(/ahaha/i, (ctx) => {
     ctx.telegram.sendChatAction(ctx.chat.id, 'typing')
-    return ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB6WBsU-UXVMt0nru4mh5mQM0p0XDrAAI_CAACCLcZAt3Doz_J4ffTHgQ')
+    ctx.telegram.sendSticker(ctx.chat.id, 'CAACAgIAAxkBAAIB6WBsU-UXVMt0nru4mh5mQM0p0XDrAAI_CAACCLcZAt3Doz_J4ffTHgQ')
+    return
 })
 
 // helper functions
