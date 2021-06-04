@@ -3,7 +3,7 @@ Description=Start Minos, the Telegram bot
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env node /home/fmarotta/minos/bot.js
+ExecStart=/usr/bin/env node %h/minos/bot.js
 Restart=always
 RestartSec=3
 

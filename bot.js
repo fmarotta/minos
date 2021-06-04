@@ -3,7 +3,7 @@ const seedrandom = require("seedrandom")
 const {Telegraf, Markup} = require("telegraf")
 const winston = require("winston")
 const googlecalendar = require("./googlecalendar.js")
-const {workDir, botToken, myId, calId} = require("./secret.js")
+const {botToken, myId, calId} = require("./secret.js")
 const TESTING = false
 
 // params
@@ -51,8 +51,8 @@ const logger = winston.createLogger({
         prettyPrint()
     ),
     transports: [
-        new winston.transports.File({filename: workDir + 'error.log', level: 'error'}),
-        new winston.transports.File({filename: workDir + 'combined.log', level: 'debug'}),
+        new winston.transports.File({filename: __dirname + '/error.log', level: 'error'}),
+        new winston.transports.File({filename: __dirname + '/combined.log', level: 'debug'}),
         new winston.transports.Console({format: winston.format.simple(), level: 'debug'}),
     ]
 })
@@ -455,7 +455,8 @@ composeMessage = function(chat) {
 }
 
 // restore the status
-const statusFile = workDir + "status.json"
+const statusFile = __dirname + "/status.json"
+console.log(statusFile)
 try {
     var parsedChats = JSON.parse(fs.readFileSync(statusFile))
     var chats = {}
